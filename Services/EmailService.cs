@@ -1,181 +1,240 @@
 using MailKit.Net.Smtp;
 using MimeKit;
 using SweepoServer.Models;
-using System.Text;
 
 namespace SweepoServer.Services
 {
     public interface IEmailService
     {
-        Task<bool> SendQuoteRequestEmailAsync(QuoteRequest request);
+        Task<bool> SendQuoteRequestEmailAsync(QuoteRequest request, string requestId);
     }
 
     public class EmailService : IEmailService
     {
         private readonly EmailConfiguration _emailConfig;
+        private readonly ITemplateService _templateService;
         private readonly ILogger<EmailService> _logger;
 
-        public EmailService(EmailConfiguration emailConfig, ILogger<EmailService> logger)
+        public EmailService(EmailConfiguration emailConfig, ITemplateService templateService, ILogger<EmailService> logger)
         {
             _emailConfig = emailConfig;
+            _templateService = templateService;
             _logger = logger;
         }
 
-        public async Task<bool> SendQuoteRequestEmailAsync(QuoteRequest request)
+        public async Task<bool> SendQuoteRequestEmailAsync(QuoteRequest request, string requestId)
         {
+            _logger.LogInformation("[{RequestId}] === EMAIL SENDING STARTED ===", requestId);
+            _logger.LogInformation("[{RequestId}] Step 1: Validating email configuration", requestId);
+            
             try
             {
-                var message = new MimeMessage();
-                message.From.Add(new MailboxAddress(_emailConfig.FromName, _emailConfig.FromEmail));
+                // Enhanced configuration validation and logging
+                _logger.LogDebug("[{RequestId}] SMTP Server: {Server}:{Port}", requestId, _emailConfig.SmtpServer, _emailConfig.SmtpPort);
+                _logger.LogDebug("[{RequestId}] SSL Enabled: {EnableSsl}", requestId, _emailConfig.EnableSsl);
+                _logger.LogDebug("[{RequestId}] From Email: {FromEmail}", requestId, _emailConfig.FromEmail);
+                _logger.LogDebug("[{RequestId}] Username: {Username}", requestId, _emailConfig.SmtpUsername);
+                _logger.LogDebug("[{RequestId}] Password Configured: {PasswordConfigured}", requestId, !string.IsNullOrEmpty(_emailConfig.SmtpPassword));
+                _logger.LogDebug("[{RequestId}] Password Length: {PasswordLength}", requestId, _emailConfig.SmtpPassword?.Length ?? 0);
+                _logger.LogDebug("[{RequestId}] Recipients Count: {RecipientCount}", requestId, _emailConfig.RecipientEmails.Count);
                 
-                foreach (var recipient in _emailConfig.RecipientEmails)
+                // Log recipients for debugging
+                for (int i = 0; i < _emailConfig.RecipientEmails.Count; i++)
                 {
-                    message.To.Add(new MailboxAddress("", recipient));
+                    _logger.LogDebug("[{RequestId}] Recipient {Index}: {Email}", requestId, i + 1, _emailConfig.RecipientEmails[i]);
                 }
-
-                message.Subject = _emailConfig.Subject;
-
-                var bodyBuilder = new BodyBuilder
+                
+                // Validate critical configuration with detailed error messages
+                if (string.IsNullOrEmpty(_emailConfig.SmtpServer))
                 {
-                    HtmlBody = GenerateEmailTemplate(request),
-                    TextBody = GenerateTextEmailTemplate(request)
-                };
-
-                message.Body = bodyBuilder.ToMessageBody();
-
+                    _logger.LogError("[{RequestId}] ❌ SMTP Server is not configured", requestId);
+                    return false;
+                }
+                
+                if (string.IsNullOrEmpty(_emailConfig.SmtpUsername))
+                {
+                    _logger.LogError("[{RequestId}] ❌ SMTP Username is not configured", requestId);
+                    return false;
+                }
+                
+                if (string.IsNullOrEmpty(_emailConfig.SmtpPassword))
+                {
+                    _logger.LogError("[{RequestId}] ❌ SMTP Password is not configured", requestId);
+                    _logger.LogError("[{RequestId}] Check SWEEPO_FROM_EMAIL_PASSWORD environment variable or appsettings.json", requestId);
+                    return false;
+                }
+                
+                if (_emailConfig.RecipientEmails.Count == 0)
+                {
+                    _logger.LogError("[{RequestId}] ❌ No recipient emails configured", requestId);
+                    return false;
+                }
+                
+                _logger.LogInformation("[{RequestId}] Step 1: ✅ Email configuration validated successfully", requestId);
+                
+                _logger.LogInformation("[{RequestId}] Step 2: Generating email content using templates", requestId);
+                
+                // Generate email content with detailed logging
+                string htmlContent = "";
+                string textContent = "";
+                
+                try
+                {
+                    _logger.LogDebug("[{RequestId}] Step 2.1: Processing HTML template", requestId);
+                    htmlContent = await _templateService.GenerateHtmlEmailAsync(request, requestId);
+                    _logger.LogDebug("[{RequestId}] Step 2.1: ✅ HTML template processed - Length: {Length}", requestId, htmlContent.Length);
+                    
+                    _logger.LogDebug("[{RequestId}] Step 2.2: Processing text template", requestId);
+                    textContent = await _templateService.GenerateTextEmailAsync(request, requestId);
+                    _logger.LogDebug("[{RequestId}] Step 2.2: ✅ Text template processed - Length: {Length}", requestId, textContent.Length);
+                }
+                catch (Exception templateEx)
+                {
+                    _logger.LogError(templateEx, "[{RequestId}] ❌ Template processing failed", requestId);
+                    _logger.LogError("[{RequestId}] Template Exception: {ExceptionType} - {Message}", requestId, templateEx.GetType().Name, templateEx.Message);
+                    return false;
+                }
+                
+                _logger.LogInformation("[{RequestId}] Step 2: ✅ Email content generated - HTML: {HtmlLength} chars, Text: {TextLength} chars", 
+                    requestId, htmlContent.Length, textContent.Length);
+                
+                _logger.LogInformation("[{CorrelationId}] Step 3: Creating email message", requestId);
+                
+                // Create the email message with detailed logging
+                MimeMessage message;
+                try
+                {
+                    message = new MimeMessage();
+                    _logger.LogDebug("[{CorrelationId}] Step 3.1: MimeMessage created", requestId);
+                    
+                    message.From.Add(new MailboxAddress(_emailConfig.FromName, _emailConfig.FromEmail));
+                    _logger.LogDebug("[{CorrelationId}] Step 3.2: From address added: {FromName} <{FromEmail}>", 
+                        requestId, _emailConfig.FromName, _emailConfig.FromEmail);
+                    
+                    // Add recipients with detailed logging
+                    _logger.LogDebug("[{CorrelationId}] Step 3.3: Adding recipients", requestId);
+                    foreach (var recipient in _emailConfig.RecipientEmails)
+                    {
+                        message.To.Add(new MailboxAddress("", recipient));
+                        _logger.LogDebug("[{CorrelationId}] Step 3.3: Added recipient: {Recipient}", requestId, recipient);
+                    }
+                    
+                    message.Subject = _emailConfig.Subject;
+                    _logger.LogDebug("[{CorrelationId}] Step 3.4: Subject set: {Subject}", requestId, message.Subject);
+                    
+                    // Create multipart message
+                    _logger.LogDebug("[{CorrelationId}] Step 3.5: Creating multipart message body", requestId);
+                    var multipart = new Multipart("alternative");
+                    multipart.Add(new TextPart("plain") { Text = textContent });
+                    multipart.Add(new TextPart("html") { Text = htmlContent });
+                    message.Body = multipart;
+                    _logger.LogDebug("[{CorrelationId}] Step 3.5: Multipart body created with plain and HTML parts", requestId);
+                }
+                catch (Exception messageEx)
+                {
+                    _logger.LogError(messageEx, "[{CorrelationId}] ❌ Email message creation failed", requestId);
+                    _logger.LogError("[{CorrelationId}] Message Exception: {ExceptionType} - {Message}", requestId, messageEx.GetType().Name, messageEx.Message);
+                    return false;
+                }
+                
+                _logger.LogInformation("[{CorrelationId}] Step 3: ✅ Email message created - Subject: {Subject}, Recipients: {RecipientCount}", 
+                    requestId, message.Subject, message.To.Count);
+                
+                _logger.LogInformation("[{CorrelationId}] Step 4: Connecting to SMTP server {Server}:{Port}", 
+                    requestId, _emailConfig.SmtpServer, _emailConfig.SmtpPort);
+                
+                // Send the email with detailed connection logging
                 using var client = new SmtpClient();
-                await client.ConnectAsync(_emailConfig.SmtpServer, _emailConfig.SmtpPort, _emailConfig.EnableSsl);
                 
-                if (!string.IsNullOrEmpty(_emailConfig.SmtpUsername))
+                try
                 {
-                    await client.AuthenticateAsync(_emailConfig.SmtpUsername, _emailConfig.SmtpPassword);
+                    _logger.LogDebug("[{CorrelationId}] Step 4.1: Creating SMTP client", requestId);
+                    _logger.LogDebug("[{CorrelationId}] Step 4.2: Attempting connection to {Server}:{Port} with SSL={EnableSsl}", 
+                        requestId, _emailConfig.SmtpServer, _emailConfig.SmtpPort, _emailConfig.EnableSsl);
+                    
+                    // Use STARTTLS for Gmail on port 587
+                    await client.ConnectAsync(_emailConfig.SmtpServer, _emailConfig.SmtpPort, MailKit.Security.SecureSocketOptions.StartTls);
+                    _logger.LogInformation("[{CorrelationId}] Step 4: ✅ Connected to SMTP server successfully", requestId);
+                    _logger.LogDebug("[{CorrelationId}] SMTP Connection Info: IsConnected={IsConnected}, IsSecure={IsSecure}, IsAuthenticated={IsAuthenticated}", 
+                        requestId, client.IsConnected, client.IsSecure, client.IsAuthenticated);
                 }
-
-                await client.SendAsync(message);
-                await client.DisconnectAsync(true);
-
-                _logger.LogInformation("Quote request email sent successfully for {Name} ({Email})", request.Name, request.Email);
+                catch (Exception connectEx)
+                {
+                    _logger.LogError(connectEx, "[{CorrelationId}] ❌ SMTP connection failed", requestId);
+                    _logger.LogError("[{CorrelationId}] Connection Exception: {ExceptionType} - {Message}", requestId, connectEx.GetType().Name, connectEx.Message);
+                    _logger.LogError("[{CorrelationId}] Connection Details: Server={Server}, Port={Port}, SSL={EnableSsl}", 
+                        requestId, _emailConfig.SmtpServer, _emailConfig.SmtpPort, _emailConfig.EnableSsl);
+                    return false;
+                }
+                
+                try
+                {
+                    _logger.LogInformation("[{CorrelationId}] Step 5: Authenticating with username: {Username}", 
+                        requestId, _emailConfig.SmtpUsername);
+                    _logger.LogDebug("[{CorrelationId}] Step 5.1: Attempting SMTP authentication", requestId);
+                    
+                    await client.AuthenticateAsync(_emailConfig.SmtpUsername, _emailConfig.SmtpPassword);
+                    _logger.LogInformation("[{CorrelationId}] Step 5: ✅ SMTP authentication successful", requestId);
+                    _logger.LogDebug("[{CorrelationId}] Authentication Status: IsAuthenticated={IsAuthenticated}", 
+                        requestId, client.IsAuthenticated);
+                }
+                catch (Exception authEx)
+                {
+                    _logger.LogError(authEx, "[{CorrelationId}] ❌ SMTP authentication failed", requestId);
+                    _logger.LogError("[{CorrelationId}] Authentication Exception: {ExceptionType} - {Message}", requestId, authEx.GetType().Name, authEx.Message);
+                    _logger.LogError("[{CorrelationId}] Authentication Details: Username={Username}, PasswordLength={PasswordLength}", 
+                        requestId, _emailConfig.SmtpUsername, _emailConfig.SmtpPassword?.Length ?? 0);
+                    _logger.LogError("[{CorrelationId}] Hint: Check if Gmail App Password is correct and 2FA is enabled", requestId);
+                    return false;
+                }
+                
+                try
+                {
+                    _logger.LogInformation("[{CorrelationId}] Step 6: Sending email message", requestId);
+                    _logger.LogDebug("[{CorrelationId}] Step 6.1: Calling SendAsync", requestId);
+                    
+                    await client.SendAsync(message);
+                    _logger.LogDebug("[{CorrelationId}] Step 6.2: Email sent, disconnecting", requestId);
+                    
+                    await client.DisconnectAsync(true);
+                    _logger.LogDebug("[{CorrelationId}] Step 6.3: Disconnected from SMTP server", requestId);
+                }
+                catch (Exception sendEx)
+                {
+                    _logger.LogError(sendEx, "[{CorrelationId}] ❌ Email sending failed", requestId);
+                    _logger.LogError("[{CorrelationId}] Send Exception: {ExceptionType} - {Message}", requestId, sendEx.GetType().Name, sendEx.Message);
+                    _logger.LogError("[{CorrelationId}] Message Details: Subject={Subject}, Recipients={RecipientCount}", 
+                        requestId, message.Subject, message.To.Count);
+                    return false;
+                }
+                
+                _logger.LogInformation("[{CorrelationId}] Step 6: ✅ Email sent successfully to {RecipientCount} recipients", 
+                    requestId, _emailConfig.RecipientEmails.Count);
+                _logger.LogInformation("[{CorrelationId}] === EMAIL SENDING COMPLETED SUCCESSFULLY ===", requestId);
+                
                 return true;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to send quote request email for {Name} ({Email})", request.Name, request.Email);
+                _logger.LogError(ex, "[{CorrelationId}] ❌ UNEXPECTED EMAIL SENDING ERROR for RequestId: {RequestId}", requestId, requestId);
+                _logger.LogError("[{CorrelationId}] Unexpected Exception Type: {ExceptionType}", requestId, ex.GetType().Name);
+                _logger.LogError("[{CorrelationId}] Unexpected Exception Message: {Message}", requestId, ex.Message);
+                _logger.LogError("[{CorrelationId}] Stack Trace: {StackTrace}", requestId, ex.StackTrace);
+                _logger.LogInformation("[{CorrelationId}] === EMAIL SENDING ENDED (UNEXPECTED FAILURE) ===", requestId);
+                _logger.LogError(ex, "[{RequestId}] ❌ FAILED to send quote request email for {Name} ({Email})", 
+                    requestId, request.Name, request.Email);
+                _logger.LogError("[{RequestId}] Exception details: {ExceptionType} - {Message}", 
+                    requestId, ex.GetType().Name, ex.Message);
+                
+                if (ex.InnerException != null)
+                {
+                    _logger.LogError("[{RequestId}] Inner exception: {InnerExceptionType} - {InnerMessage}", 
+                        requestId, ex.InnerException.GetType().Name, ex.InnerException.Message);
+                }
+                
+                _logger.LogInformation("[{RequestId}] === EMAIL SENDING COMPLETED (FAILED) ===", requestId);
                 return false;
             }
-        }
-
-        private string GenerateEmailTemplate(QuoteRequest request)
-        {
-            var serviceDisplayName = GetServiceDisplayName(request.Service);
-            
-            return $@"
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset='utf-8'>
-    <title>New Quote Request</title>
-    <style>
-        body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; }}
-        .container {{ max-width: 600px; margin: 0 auto; padding: 20px; }}
-        .header {{ background-color: #4CAF50; color: white; padding: 20px; text-align: center; }}
-        .content {{ padding: 20px; background-color: #f9f9f9; }}
-        .field {{ margin-bottom: 15px; }}
-        .label {{ font-weight: bold; color: #555; }}
-        .value {{ margin-left: 10px; }}
-        .footer {{ text-align: center; padding: 20px; font-size: 12px; color: #666; }}
-    </style>
-</head>
-<body>
-    <div class='container'>
-        <div class='header'>
-            <h1>New Quote Request</h1>
-        </div>
-        <div class='content'>
-            <div class='field'>
-                <span class='label'>Name:</span>
-                <span class='value'>{request.Name}</span>
-            </div>
-            <div class='field'>
-                <span class='label'>Email:</span>
-                <span class='value'>{request.Email}</span>
-            </div>
-            <div class='field'>
-                <span class='label'>Phone:</span>
-                <span class='value'>{request.Phone}</span>
-            </div>
-            <div class='field'>
-                <span class='label'>Service:</span>
-                <span class='value'>{serviceDisplayName}</span>
-            </div>
-            {(string.IsNullOrEmpty(request.Address) ? "" : $@"
-            <div class='field'>
-                <span class='label'>Address:</span>
-                <span class='value'>{request.Address}</span>
-            </div>")}
-            {(string.IsNullOrEmpty(request.Message) ? "" : $@"
-            <div class='field'>
-                <span class='label'>Message:</span>
-                <span class='value'>{request.Message}</span>
-            </div>")}
-            <div class='field'>
-                <span class='label'>Submitted:</span>
-                <span class='value'>{request.Timestamp:yyyy-MM-dd HH:mm:ss} UTC</span>
-            </div>
-            <div class='field'>
-                <span class='label'>Source:</span>
-                <span class='value'>{request.Source}</span>
-            </div>
-        </div>
-        <div class='footer'>
-            <p>This quote request was submitted through the Sweepo website.</p>
-        </div>
-    </div>
-</body>
-</html>";
-        }
-
-        private string GenerateTextEmailTemplate(QuoteRequest request)
-        {
-            var serviceDisplayName = GetServiceDisplayName(request.Service);
-            var sb = new StringBuilder();
-            
-            sb.AppendLine("NEW QUOTE REQUEST");
-            sb.AppendLine("==================");
-            sb.AppendLine();
-            sb.AppendLine($"Name: {request.Name}");
-            sb.AppendLine($"Email: {request.Email}");
-            sb.AppendLine($"Phone: {request.Phone}");
-            sb.AppendLine($"Service: {serviceDisplayName}");
-            
-            if (!string.IsNullOrEmpty(request.Address))
-                sb.AppendLine($"Address: {request.Address}");
-            
-            if (!string.IsNullOrEmpty(request.Message))
-            {
-                sb.AppendLine($"Message:");
-                sb.AppendLine(request.Message);
-            }
-            
-            sb.AppendLine($"Submitted: {request.Timestamp:yyyy-MM-dd HH:mm:ss} UTC");
-            sb.AppendLine($"Source: {request.Source}");
-            sb.AppendLine();
-            sb.AppendLine("This quote request was submitted through the Sweepo website.");
-            
-            return sb.ToString();
-        }
-
-        private string GetServiceDisplayName(string service)
-        {
-            return service switch
-            {
-                "home-cleaning" => "Home Cleaning",
-                "commercial-cleaning" => "Commercial Cleaning",
-                "pest-control" => "Pest Control",
-                "garbage-removal" => "Garbage Removal",
-                "lawn-garden" => "Lawn & Garden",
-                "car-valet" => "Car Valet",
-                _ => service
-            };
         }
     }
 }

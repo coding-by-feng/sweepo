@@ -1,0 +1,38 @@
+🧹 NEW QUOTE REQUEST - SWEEPO CLEANING SERVICES
+================================================================
+
+👤 CUSTOMER DETAILS
+------------------
+Name: {{CustomerName}}
+Email: {{CustomerEmail}}
+Phone: {{CustomerPhone}}
+
+🏠 SERVICE INFORMATION
+---------------------
+Service Type: {{ServiceType}}
+{{#if CustomerAddress}}
+Property Address: {{CustomerAddress}}
+{{/if}}
+
+💬 ADDITIONAL DETAILS
+--------------------
+{{#if CustomerMessage}}
+{{CustomerMessage}}
+{{else}}
+No additional details provided.
+{{/if}}
+
+⏰ SUBMISSION DETAILS
+--------------------
+Submitted: {{SubmissionTime}}
+Source: {{Source}}
+Request ID: {{RequestId}}
+
+📞 NEXT STEPS
+------------
+Contact the customer within 24 hours to provide a detailed quote.
+
+================================================================
+This quote request was submitted through the Sweepo website.
+For support, please check the system logs or contact the administrator.
+================================================================

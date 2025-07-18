@@ -21,10 +21,10 @@ RUN mkdir -p /app/logs
 COPY --from=build /app/out .
 
 # Expose port
-EXPOSE 8080
+EXPOSE 1969
 
 # Set environment variables
-ENV ASPNETCORE_URLS=http://+:8080
+ENV ASPNETCORE_URLS=http://+:1969
 ENV ASPNETCORE_ENVIRONMENT=Production
 
 # Run the application

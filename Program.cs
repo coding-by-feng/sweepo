@@ -20,12 +20,31 @@ builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
 // Configure email settings
+Log.Information("Configuring email settings...");
 var emailConfig = new EmailConfiguration();
 builder.Configuration.GetSection("EmailSettings").Bind(emailConfig);
+
+// Load Gmail App password from environment variable for security
+var envPassword = Environment.GetEnvironmentVariable("SWEEPO_FROM_EMAIL_PASSWORD");
+if (!string.IsNullOrEmpty(envPassword))
+{
+    emailConfig.SmtpPassword = envPassword;
+    Log.Information("Gmail App password loaded from environment variable SWEEPO_FROM_EMAIL_PASSWORD");
+}
+else if (string.IsNullOrEmpty(emailConfig.SmtpPassword))
+{
+    Log.Warning("No Gmail App password configured. Set SWEEPO_FROM_EMAIL_PASSWORD environment variable or SmtpPassword in appsettings.json");
+}
+
+Log.Information("Email configuration loaded: Server={Server}:{Port}, From={FromEmail}, Recipients={RecipientCount}, PasswordConfigured={PasswordConfigured}", 
+    emailConfig.SmtpServer, emailConfig.SmtpPort, emailConfig.FromEmail, emailConfig.RecipientEmails.Count, !string.IsNullOrEmpty(emailConfig.SmtpPassword));
 builder.Services.AddSingleton(emailConfig);
 
-// Register email service
+// Register services
+Log.Information("Registering application services...");
+builder.Services.AddScoped<ITemplateService, TemplateService>();
 builder.Services.AddScoped<IEmailService, EmailService>();
+Log.Information("Application services registered successfully");
 
 // Configure CORS
 builder.Services.AddCors(options =>

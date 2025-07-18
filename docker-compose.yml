@@ -11,6 +11,7 @@ services:
       - EmailSettings__SmtpPort=587
       - EmailSettings__SmtpUsername=${SMTP_USERNAME}
       - EmailSettings__SmtpPassword=${SMTP_PASSWORD}
+      - SWEEPO_FROM_EMAIL_PASSWORD=${SWEEPO_FROM_EMAIL_PASSWORD}
       - EmailSettings__EnableSsl=true
       - EmailSettings__FromEmail=${FROM_EMAIL}
       - EmailSettings__FromName=Sweepo Team
