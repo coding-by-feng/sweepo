@@ -1,0 +1,28 @@
+version: '3.8'
+
+services:
+  sweepo-server:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+      - EmailSettings__SmtpServer=smtp.gmail.com
+      - EmailSettings__SmtpPort=587
+      - EmailSettings__SmtpUsername=${SMTP_USERNAME}
+      - EmailSettings__SmtpPassword=${SMTP_PASSWORD}
+      - EmailSettings__EnableSsl=true
+      - EmailSettings__FromEmail=${FROM_EMAIL}
+      - EmailSettings__FromName=Sweepo Team
+      - EmailSettings__RecipientEmails__0=${RECIPIENT_EMAIL_1}
+      - EmailSettings__RecipientEmails__1=${RECIPIENT_EMAIL_2}
+      - EmailSettings__Subject=New Quote Request from Sweepo
+    volumes:
+      - ./logs:/app/logs
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/api/quote/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
