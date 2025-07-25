@@ -14,6 +14,9 @@ RUN dotnet publish -c Release -o out
 FROM mcr.microsoft.com/dotnet/aspnet:9.0 AS runtime
 WORKDIR /app
 
+# Install vim for debugging/editing
+RUN apt-get update && apt-get install -y vim && rm -rf /var/lib/apt/lists/*
+
 # Create logs directory
 RUN mkdir -p /app/logs
 
